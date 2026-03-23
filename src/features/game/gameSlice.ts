@@ -1,5 +1,10 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
-import type { GameState, LandingTarget, SpeedMode } from "./types";
+import type { GameState, GameShip, LandingTarget, SpeedMode } from "./types";
+
+const INITIAL_SHIP_X = [0, 660];
+
+const idleShips = (): GameShip[] =>
+  INITIAL_SHIP_X.map((x, i) => ({ id: `ship-idle-${i}`, x }));
 
 const initialState: GameState = {
   status: "idle",
@@ -15,11 +20,10 @@ const initialState: GameState = {
   flightTimeMs: 0,
   flightDurationMs: 8000,
   landingTarget: "ship",
-  plane: {
-    y: 270,
-    tilt: 0,
-  },
+  plane: { y: 248, tilt: 0 },
   items: [],
+  ships: idleShips(),
+  landingShipX: null,
   lastOutcome: null,
 };
 
@@ -32,6 +36,7 @@ type FramePayload = {
   planeY: number;
   planeTilt: number;
   items: GameState["items"];
+  ships: GameState["ships"];
   flightTimeMs: number;
   status: GameState["status"];
   currentWin: number;
@@ -40,6 +45,7 @@ type FramePayload = {
 type FinishPayload = {
   finalWin: number;
   outcome: GameState["lastOutcome"];
+  landingShipX?: number | null;
 };
 
 const gameSlice = createSlice({
@@ -75,11 +81,10 @@ const gameSlice = createSlice({
       state.landingTarget = action.payload.landingTarget;
       state.currentWin = state.bet;
       state.items = [];
-      state.plane = {
-        y: 270,
-        tilt: -10,
-      };
+      state.ships = idleShips();
+      state.plane = { y: 248, tilt: -10 };
       state.lastOutcome = null;
+      state.landingShipX = null;
     },
     frameUpdated(state, action: PayloadAction<FramePayload>) {
       state.flightTimeMs = action.payload.flightTimeMs;
@@ -87,6 +92,7 @@ const gameSlice = createSlice({
       state.plane.y = action.payload.planeY;
       state.plane.tilt = action.payload.planeTilt;
       state.items = action.payload.items;
+      state.ships = action.payload.ships;
       state.currentWin = action.payload.currentWin;
     },
     finishGame(state, action: PayloadAction<FinishPayload>) {
@@ -97,12 +103,10 @@ const gameSlice = createSlice({
         state.balance = Math.max(0, state.balance - state.bet + action.payload.finalWin);
       }
       state.lastOutcome = action.payload.outcome;
-      // Сброс игровой зоны в начальное состояние
-      state.plane = {
-        y: 270,
-        tilt: 0,
-      };
+      state.landingShipX = action.payload.landingShipX ?? null;
+      state.plane = { y: 248, tilt: 0 };
       state.items = [];
+      state.ships = idleShips();
       state.flightTimeMs = 0;
     },
   },

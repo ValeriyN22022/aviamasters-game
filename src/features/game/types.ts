@@ -17,6 +17,11 @@ export interface GamePlane {
   tilt: number;
 }
 
+export interface GameShip {
+  id: string;
+  x: number;
+}
+
 export interface GameState {
   status: GameStatus;
   speed: SpeedMode;
@@ -33,5 +38,7 @@ export interface GameState {
   landingTarget: LandingTarget;
   plane: GamePlane;
   items: GameItem[];
+  ships: GameShip[];
+  landingShipX: number | null;
   lastOutcome: "water" | "shipWin" | "shipLose" | null;
 }

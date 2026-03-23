@@ -5,6 +5,7 @@ import {
   decrementAutoplay,
   finishGame,
   frameUpdated,
+  setDemoMode,
   startGame,
   stopAutoplay,
 } from "../features/game/gameSlice";
@@ -30,12 +31,26 @@ import winLowSound from "../../sounds/выигрыш до x2.ogg";
 import winMediumSound from "../../sounds/выигрыш x2-x5.ogg";
 import winHighSound from "../../sounds/выигрыш x5-x9.99.ogg";
 import flightSound from "../../sounds/полет самолетика.ogg";
+import tonSvg from "../assets/ton.svg";
 
 const STAGE = { width: 920, height: 420 };
-const PLANE_X = 140;
-const WATER_Y = 325;
-const DECK_Y = 270;
+const PLANE_X = 148;
+const WATER_Y = 289;
+const DECK_Y = 238;
 const CRUISE_Y = 180;
+const SHIP_WIDTH = 520;
+const SHIP_HEIGHT = 140;
+const SHIP_BOTTOM = 52;
+const SHIP_GAP = 660;
+const SHIP_SPEED = 0.12;
+
+const initialShips = (): { id: string; x: number }[] => {
+  const t = Date.now();
+  return [
+    { id: `ship-${t}-0`, x: 0 },
+    { id: `ship-${t}-1`, x: SHIP_GAP },
+  ];
+};
 const TAKEOFF_MS = 1400;
 const LANDING_MS = 1400;
 const ITEM_SPEED = 0.22;
@@ -127,16 +142,19 @@ export default function GameStage() {
     landingTarget,
     plane,
     items,
+    ships,
     currentWin,
     bet,
     balance,
     autoplayRemaining,
     demoMode,
     lastOutcome,
+    landingShipX,
   } = useSelector((state: RootState) => state.game);
 
   const lastTimeRef = useRef<number | null>(null);
   const itemsRef = useRef<GameItem[]>([]);
+  const shipsRef = useRef<{ id: string; x: number }[]>([]);
   const planeYRef = useRef<number>(plane.y);
   const planeTiltRef = useRef<number>(plane.tilt);
   const altitudeOffsetRef = useRef<number>(0);
@@ -167,6 +185,7 @@ export default function GameStage() {
   useEffect(() => {
     if (status === "takingOff") {
       itemsRef.current = [];
+      shipsRef.current = initialShips();
       planeYRef.current = DECK_Y;
       planeTiltRef.current = -12;
       altitudeOffsetRef.current = 0;
@@ -192,6 +211,7 @@ export default function GameStage() {
       flightAudioRef.current.play().catch(() => {});
     } else if (status === "idle" && statusRef.current !== "idle") {
       itemsRef.current = [];
+      shipsRef.current = [];
       planeYRef.current = plane.y;
       planeTiltRef.current = plane.tilt;
       altitudeOffsetRef.current = 0;
@@ -313,7 +333,11 @@ export default function GameStage() {
               : finalWin >= bet
                 ? "shipWin"
                 : "shipLose";
-          
+          const shipUnderPlane = shipsRef.current.find(
+            (s) => s.x <= PLANE_X && s.x + SHIP_WIDTH >= PLANE_X
+          );
+          const shipX = landingTarget === "ship" && shipUnderPlane ? shipUnderPlane.x : null;
+
           if (landingTarget === "water") {
             playSound(waterLandingSound, 0.7);
           } else {
@@ -326,8 +350,8 @@ export default function GameStage() {
               playSound(winLowSound, 0.8);
             }
           }
-          
-          dispatch(finishGame({ finalWin, outcome }));
+
+          dispatch(finishGame({ finalWin, outcome, landingShipX: shipX }));
           if (autoplayRemaining > 0) {
             const nextRemaining = Math.max(0, autoplayRemaining - 1);
             dispatch(decrementAutoplay());
@@ -411,7 +435,7 @@ export default function GameStage() {
           }
           const nextX = item.x - ITEM_SPEED * dt;
           const hit =
-            Math.abs(nextX - PLANE_X) < 24 && Math.abs(item.y - planeYRef.current) < 18;
+            Math.abs(nextX - PLANE_X) < 48 && Math.abs(item.y - planeYRef.current) < 36;
           if (hit) {
             if (item.type === "torpedo") {
               winRef.current = Math.max(0, winRef.current / 2);
@@ -451,12 +475,24 @@ export default function GameStage() {
 
       itemsRef.current = updatedItems;
 
+      let updatedShips = shipsRef.current.map((s) => ({ ...s, x: s.x - SHIP_SPEED * dt }));
+      updatedShips = updatedShips.filter((s) => s.x + SHIP_WIDTH > 0);
+      const maxX = updatedShips.length ? Math.max(...updatedShips.map((s) => s.x)) : 0;
+      while (updatedShips.length < 2) {
+        updatedShips.push({
+          id: `ship-${Date.now()}-${updatedShips.length}`,
+          x: maxX + SHIP_GAP,
+        });
+      }
+      shipsRef.current = updatedShips;
+
       if (statusRef.current !== "idle") {
         dispatch(
           frameUpdated({
             planeY: planeYRef.current,
             planeTilt: planeTiltRef.current,
             items: updatedItems,
+            ships: updatedShips,
             flightTimeMs: flightTimeRef.current,
             status: statusRef.current,
             currentWin: winRef.current,
@@ -507,10 +543,8 @@ export default function GameStage() {
             : "";
 
   return (
-    <div
-      className={`stage ${landingClass}`}
-      style={{ width: STAGE.width, height: STAGE.height }}
-    >
+    <div className="stage-container">
+      <div className={`stage ${landingClass}`} style={{ width: STAGE.width, height: STAGE.height }}>
       <div className="sky" />
       <div className="cloud-layer">
         {cloudConfigs.map((cloud, index) => (
@@ -530,10 +564,37 @@ export default function GameStage() {
         ))}
       </div>
       <div className="sea" />
-      <div className="ship" style={{ backgroundImage: `url(${shipImage})` }} />
-      <div className="landing-effect landing-effect-water" />
-      <div className="landing-effect landing-effect-shipwin" />
-      <div className="landing-effect landing-effect-shiploss" />
+      {ships.map((ship) => (
+        <div
+          key={ship.id}
+          className="ship"
+          style={{
+            left: ship.x,
+            bottom: SHIP_BOTTOM,
+            width: SHIP_WIDTH,
+            height: SHIP_HEIGHT,
+            backgroundImage: `url(${shipImage})`,
+          }}
+        />
+      ))}
+      <div
+        className="landing-effect landing-effect-water"
+        style={{ left: STAGE.width / 2 - 120, bottom: SHIP_BOTTOM }}
+      />
+      <div
+        className="landing-effect landing-effect-shipwin"
+        style={{
+          left: (landingShipX ?? 0) + SHIP_WIDTH / 2 - 120,
+          bottom: SHIP_BOTTOM,
+        }}
+      />
+      <div
+        className="landing-effect landing-effect-shiploss"
+        style={{
+          left: (landingShipX ?? 0) + SHIP_WIDTH / 2 - 120,
+          bottom: SHIP_BOTTOM,
+        }}
+      />
       {explosion.active && (
         <div
           className="explosion"
@@ -570,8 +631,28 @@ export default function GameStage() {
         </div>
       ))}
       <div className="hud">
-        <span className={`status status-${status}`}>{status}</span>
-        <span className="flight-time">{Math.round(flightTimeRef.current / 1000)}s</span>
+        <button
+          type="button"
+          className={`hud-demo ${demoMode ? "hud-demo--active" : ""}`}
+          onClick={() => dispatch(setDemoMode(!demoMode))}
+          aria-pressed={demoMode}
+          aria-label="Демо режим"
+        >
+          <span className="hud-demo-label">Демо</span>
+          <span className="hud-demo-track">
+            <span className="hud-demo-thumb" />
+          </span>
+        </button>
+        <div className="hud-balance">
+          <span className="hud-balance-icon-wrap">
+            <img src={tonSvg} alt="" className="hud-balance-icon" />
+          </span>
+          <span className="hud-balance-value">{balance.toFixed(2)}</span>
+          <button type="button" className="hud-balance-add" aria-label="Пополнить">
+            +
+          </button>
+        </div>
+      </div>
       </div>
     </div>
   );
